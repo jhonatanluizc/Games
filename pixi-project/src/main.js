@@ -1,4 +1,5 @@
 import { Application, Container, Graphics, Sprite, Texture, TextureSource, Assets, Rectangle, AnimatedSprite } from "pixi.js";
+import { createPlayer } from "./player.js";
 
 // Música de fundo
 let bgm;
@@ -24,7 +25,10 @@ let bgm;
   const app = new Application();
 
 
-  await app.init({ background: "#5c94fc", width: 800, height: 600 }); // fundo azul Atari, tamanho fixo
+  await app.init({ background: "#5c94fc", width: 800, height: 600 }); // fundo azul Atari, tamanho 
+  // fixo
+  app.ticker.maxFPS = 24; // Limita a 24 FPS para estilo retrô
+
   document.getElementById("pixi-container").appendChild(app.canvas);
 
   // Adiciona o background.png como fundo
@@ -40,38 +44,21 @@ let bgm;
 
   // Variáveis do jogo (jogador, plataformas, etc)
   let player, platforms = [];
+
+
   // Física simples
   let velocityY = 0;
   const gravity = 1;
   const moveSpeed = 4;
-  const jumpStrength = 16;
+  const jumpStrength = 10;
   let onGround = false;
+
   // Controles
   const keys = { left: false, right: false, up: false };
 
   // Objetivo (moeda)
   let goal;
   let goalReached = false;
-
-  // Função para criar o jogador (placeholder)
-  async function createPlayer() {
-    const sheet = await Assets.load('/assets/alucard.png');
-    const frameWidth = sheet.width / 6;
-    const frameHeight = sheet.height;
-    const frame1 = new Texture({ source: sheet.source, frame: new Rectangle(frameWidth * 0, 0, frameWidth, frameHeight) });
-    const frame2 = new Texture({ source: sheet.source, frame: new Rectangle(frameWidth * 1, 0, frameWidth, frameHeight) });
-    const frame3 = new Texture({ source: sheet.source, frame: new Rectangle(frameWidth * 2, 0, frameWidth, frameHeight) });
-    const frame4 = new Texture({ source: sheet.source, frame: new Rectangle(frameWidth * 3, 0, frameWidth, frameHeight) });
-    const frame5 = new Texture({ source: sheet.source, frame: new Rectangle(frameWidth * 4, 0, frameWidth, frameHeight) });
-    const frame6 = new Texture({ source: sheet.source, frame: new Rectangle(frameWidth * 5, 0, frameWidth, frameHeight) });
-
-    const sprite = new AnimatedSprite([frame1, frame2, frame3, frame4, frame5, frame6]);
-    sprite.x = 120 + 50 - frameWidth / 2;
-    sprite.y = 480 - frameHeight;
-    sprite.animationSpeed = 0.15;
-    sprite.play();
-    return sprite;
-  }
 
   // Função para criar uma plataforma (placeholder)
   function createPlatform(x, y, w, h) {
@@ -83,10 +70,16 @@ let bgm;
     return g;
   }
 
-  // Helper para obter largura/altura reais do player
+  // Helper para obter largura/altura "justa" do player (colisão menor que sprite)
   function getPlayerBounds() {
     const bounds = player.getLocalBounds();
-    return { width: bounds.width, height: bounds.height };
+    // Reduz a área de colisão para 60% da largura e 80% da altura, centralizado
+    return {
+      width: bounds.width * 0.6,
+      height: bounds.height * 0.8,
+      offsetX: bounds.width * 0.2,
+      offsetY: bounds.height * 0.2
+    };
   }
 
   // Cria objetivo (moeda)
@@ -136,9 +129,23 @@ let bgm;
     if (goalReached) return;
     // Movimento horizontal
     let nextX = player.x;
-    if (keys.left) nextX -= moveSpeed;
-    if (keys.right) nextX += moveSpeed;
-    const { width: playerW, height: playerH } = getPlayerBounds();
+    let moving = false;
+    if (keys.left) {
+      nextX -= moveSpeed;
+      moving = true;
+      if (player.setWalk) player.setWalk();
+      if (player.smoothFlip) player.smoothFlip(-1); // vira suavemente para esquerda
+    }
+    if (keys.right) {
+      nextX += moveSpeed;
+      moving = true;
+      if (player.setWalk) player.setWalk();
+      if (player.smoothFlip) player.smoothFlip(1); // vira suavemente para direita
+    }
+    if (!keys.left && !keys.right) {
+      if (player.setIdle) player.setIdle();
+    }
+    const { width: playerW, height: playerH, offsetX, offsetY } = getPlayerBounds();
 
     // Gravidade
     velocityY += gravity;
@@ -148,10 +155,10 @@ let bgm;
     let blockedX = false;
     for (const plat of platforms) {
       if (
-        nextX + playerW > plat.x &&
-        nextX < plat.x + plat.width &&
-        player.y + playerH > plat.y &&
-        player.y < plat.y + plat.height
+        nextX + offsetX + playerW > plat.x &&
+        nextX + offsetX < plat.x + plat.width &&
+        player.y + offsetY + playerH > plat.y &&
+        player.y + offsetY < plat.y + plat.height
       ) {
         blockedX = true;
         break;
@@ -165,13 +172,13 @@ let bgm;
     for (const plat of platforms) {
       // Descendo
       if (
-        player.x + playerW > plat.x &&
-        player.x < plat.x + plat.width &&
-        nextY + playerH > plat.y &&
-        player.y + playerH <= plat.y
+        player.x + offsetX + playerW > plat.x &&
+        player.x + offsetX < plat.x + plat.width &&
+        nextY + offsetY + playerH > plat.y &&
+        player.y + offsetY + playerH <= plat.y
       ) {
         // Colidiu com o topo da plataforma
-        player.y = plat.y - playerH;
+        player.y = plat.y - offsetY - playerH;
         velocityY = 0;
         onGround = true;
         blockedY = true;
@@ -179,13 +186,13 @@ let bgm;
       }
       // Subindo (bateu embaixo da plataforma)
       if (
-        player.x + playerW > plat.x &&
-        player.x < plat.x + plat.width &&
-        nextY < plat.y + plat.height &&
-        player.y >= plat.y + plat.height
+        player.x + offsetX + playerW > plat.x &&
+        player.x + offsetX < plat.x + plat.width &&
+        nextY + offsetY < plat.y + plat.height &&
+        player.y + offsetY >= plat.y + plat.height
       ) {
         // Impede atravessar de baixo para cima
-        player.y = plat.y + plat.height;
+        player.y = plat.y + plat.height - offsetY;
         velocityY = 0;
         blockedY = true;
         break;
@@ -195,12 +202,12 @@ let bgm;
 
     // Limita para não sair da tela
     if (player.x < 0) player.x = 0;
-    if (player.x + playerW > app.screen.width) player.x = app.screen.width - playerW;
+    if (player.x + offsetX + playerW > app.screen.width) player.x = app.screen.width - playerW - offsetX;
     if (player.y > app.screen.height) player.y = app.screen.height - playerH;
 
     // Checa se jogador alcançou o objetivo
-    const dx = player.x + playerW / 2 - goal.x;
-    const dy = player.y + playerH / 2 - goal.y;
+    const dx = player.x + offsetX + playerW / 2 - goal.x;
+    const dy = player.y + offsetY + playerH / 2 - goal.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < 28) {
       goalReached = true;
