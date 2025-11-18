@@ -70,17 +70,7 @@ let bgm;
     return g;
   }
 
-  // Helper para obter largura/altura "justa" do player (colisão menor que sprite)
-  function getPlayerBounds() {
-    const bounds = player.getLocalBounds();
-    // Reduz a área de colisão para 60% da largura e 80% da altura, centralizado
-    return {
-      width: bounds.width * 0.6,
-      height: bounds.height * 0.8,
-      offsetX: bounds.width * 0.2,
-      offsetY: bounds.height * 0.2
-    };
-  }
+
 
   // Cria objetivo (moeda)
   function createGoal(x, y) {
@@ -134,48 +124,48 @@ let bgm;
       nextX -= moveSpeed;
       moving = true;
       if (player.setWalk) player.setWalk();
-      if (player.smoothFlip) player.smoothFlip(-1); // vira suavemente para esquerda
+      if (player.faceDirection) player.faceDirection(-1); // vira para esquerda
     }
     if (keys.right) {
       nextX += moveSpeed;
       moving = true;
       if (player.setWalk) player.setWalk();
-      if (player.smoothFlip) player.smoothFlip(1); // vira suavemente para direita
+      if (player.faceDirection) player.faceDirection(1); // vira para direita
     }
     if (!keys.left && !keys.right) {
       if (player.setIdle) player.setIdle();
     }
-    const { width: playerW, height: playerH, offsetX, offsetY } = getPlayerBounds();
+    const { width: playerW, height: playerH, offsetX, offsetY } = player.getCollisionBounds();
 
     // Gravidade
     velocityY += gravity;
     let nextY = player.y + velocityY;
 
-    // Colisão horizontal (simples)
+    // Colisão horizontal (usando método do player)
     let blockedX = false;
     for (const plat of platforms) {
-      if (
-        nextX + offsetX + playerW > plat.x &&
-        nextX + offsetX < plat.x + plat.width &&
-        player.y + offsetY + playerH > plat.y &&
-        player.y + offsetY < plat.y + plat.height
-      ) {
+      if (player.checkPlatformCollision(nextX, player.y, plat)) {
         blockedX = true;
+        // Permite "deslizar" ao lado da plataforma
+        // Se está indo para a direita, encosta na borda esquerda da plataforma
+        if (nextX > player.x) {
+          player.x = plat.x - offsetX - playerW - 0.1;
+        } else if (nextX < player.x) {
+          player.x = plat.x + plat.width - offsetX + 0.1;
+        }
         break;
       }
     }
     if (!blockedX) player.x = nextX;
 
-    // Colisão vertical
+    // Colisão vertical (usando método do player)
     onGround = false;
     let blockedY = false;
     for (const plat of platforms) {
       // Descendo
       if (
-        player.x + offsetX + playerW > plat.x &&
-        player.x + offsetX < plat.x + plat.width &&
-        nextY + offsetY + playerH > plat.y &&
-        player.y + offsetY + playerH <= plat.y
+        player.checkPlatformCollision(player.x, nextY, plat) &&
+        nextY > player.y
       ) {
         // Colidiu com o topo da plataforma
         player.y = plat.y - offsetY - playerH;
@@ -186,10 +176,8 @@ let bgm;
       }
       // Subindo (bateu embaixo da plataforma)
       if (
-        player.x + offsetX + playerW > plat.x &&
-        player.x + offsetX < plat.x + plat.width &&
-        nextY + offsetY < plat.y + plat.height &&
-        player.y + offsetY >= plat.y + plat.height
+        player.checkPlatformCollision(player.x, nextY, plat) &&
+        nextY < player.y
       ) {
         // Impede atravessar de baixo para cima
         player.y = plat.y + plat.height - offsetY;
